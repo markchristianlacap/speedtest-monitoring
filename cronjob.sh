@@ -1,6 +1,6 @@
 #!/bin/bash
 RESULT=$(speedtest --format=json)
-TMP=/var/www/html/results.json
+TMP=/var/www/html/speedtest/results.json
 
 if [ ! -f "$TMP" ]; then
     echo "[]" > "$TMP"
