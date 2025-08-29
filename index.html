@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Main Campus - Speedtest Monitoring</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@unocss/runtime/attributify.global.js"></script>
+  <script type="module">
+    import {createApp, ref, onMounted, watch} from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js'
+    createApp({
+      setup() {
+        const results = ref([]);
+        const filteredResults = ref([]);
+        const fromDate = ref('');
+        const toDate = ref('');
+        let chart = null;
+        const formatMBps = (mbps) => {
+          return ((mbps * 8) / 1_000_000).toFixed(2);
+        };
+        // Load results.json
+        const loadResults = async () => {
+          try {
+            const res = await fetch("results.json");
+            results.value = await res.json();
+            filteredResults.value = results.value;
+            drawChart();
+          } catch (e) {
+            console.error("Error loading results:", e);
+          }
+        };
+
+        // Apply filter
+        const applyFilter = () => {
+          filteredResults.value = results.value.filter(r => {
+            const d = new Date(r.timestamp);
+            return (!fromDate.value || d >= new Date(fromDate.value)) &&
+              (!toDate.value || d <= new Date(toDate.value));
+          });
+          drawChart();
+        };
+
+        const resetFilter = () => {
+          fromDate.value = '';
+          toDate.value = '';
+          filteredResults.value = results.value;
+          drawChart();
+        };
+
+        // Draw chart
+        const drawChart = () => {
+          const ctx = document.getElementById('speedChart').getContext('2d');
+          if (chart) chart.destroy();
+
+          chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: filteredResults.value.map(r => formatDate(r.timestamp)),
+              datasets: [
+                {
+                  label: 'Download (Mbps)',
+                  data: filteredResults.value.map(r => formatMBps(r.download.bandwidth)),
+                  borderColor: 'red',
+                  fill: false,
+                },
+                {
+                  label: 'Upload (Mbps)',
+                  data: filteredResults.value.map(r => formatMBps(r.upload.bandwidth)),
+                  borderColor: 'blue',
+                  fill: false,
+                }
+              ]
+            }
+          });
+        };
+
+        const formatDate = (ts) => {
+          return new Date(ts).toLocaleString();
+        };
+
+        onMounted(loadResults);
+
+        return {
+          results,
+          filteredResults,
+          fromDate,
+          toDate,
+          applyFilter,
+          resetFilter,
+          formatDate,
+          formatMBps
+        };
+      }
+    }).mount('#app');
+  </script>
+</head>
+
+<body class="font-sans bg-gray-50 text-gray-800 p-6">
+
+  <div id="app" class="max-w-5xl mx-auto space-y-6">
+    <h1 class="text-2xl font-bold">📶 OMSC Main - Speedtest Monitoring</h1>
+
+    <!-- Filter -->
+    <div class="flex flex-wrap gap-3 items-center">
+      <label>From: <input type="date" v-model="fromDate" class="border rounded px-2 py-1" /></label>
+      <label>To: <input type="date" v-model="toDate" class="border rounded px-2 py-1" /></label>
+      <button @click="applyFilter" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 border-none">
+        Apply
+      </button>
+      <button @click="resetFilter" class="px-4 py-2 border-none bg-gray-300 rounded hover:bg-gray-400">
+        Reset
+      </button>
+    </div>
+
+    <!-- Chart -->
+    <div class="bg-white p-4 rounded-2xl shadow">
+      <canvas id="speedChart"></canvas>
+    </div>
+
+    <!-- Table -->
+    <div class="overflow-x-auto bg-white rounded-2xl shadow">
+      <table class="w-full border-collapse">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="text-left p-2">Date</th>
+            <th class="text-left p-2">Download (Mbps)</th>
+            <th class="text-left p-2">Upload (Mbps)</th>
+            <th class="text-left p-2">Ping (ms)</th>
+            <th class="text-left p-2">Link</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in filteredResults" :key="r.timestamp" class="border-t">
+            <td class="p-2">{{ formatDate(r.timestamp) }}</td>
+            <td class="p-2">{{ formatMBps(r.download.bandwidth) }}</td>
+            <td class="p-2">{{ formatMBps(r.upload.bandwidth) }}</td>
+            <td class="p-2">{{ r.ping.latency.toFixed(0) }}</td>
+            <td class="p-2">
+              <a v-if="r.result.url" :href="r.result.url" target="_blank" class="text-blue-600 hover:underline">
+                View
+              </a>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+
+</html>
