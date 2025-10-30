@@ -119,7 +119,7 @@ chmod 666 "$INSTALL_DIR/results.json"
 # Set up cron job
 echo ""
 echo "Setting up cron job..."
-read -p "How often should speed tests run? (1=hourly, 2=every 30min, 3=every 15min, 4=custom): " FREQ
+read -r -p "How often should speed tests run? (1=hourly, 2=every 30min, 3=every 15min, 4=custom): " FREQ
 
 case $FREQ in
     1)
@@ -132,7 +132,7 @@ case $FREQ in
         CRON_SCHEDULE="*/15 * * * *"
         ;;
     4)
-        read -p "Enter cron schedule (e.g., '0 * * * *' for hourly): " CRON_SCHEDULE
+        read -r -p "Enter cron schedule (e.g., '0 * * * *' for hourly): " CRON_SCHEDULE
         ;;
     *)
         CRON_SCHEDULE="0 * * * *"
