@@ -5,12 +5,15 @@ RUN apk add --no-cache \
     bash \
     curl \
     jq \
+    bc \
     ca-certificates \
     && rm -rf /var/cache/apk/*
 
-# Install Speedtest CLI
-RUN curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.alpine.sh | bash \
-    && apk add --no-cache speedtest
+# Install Speedtest CLI from official binary
+RUN curl -L https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-x86_64.tgz -o speedtest.tgz \
+    && tar -xzf speedtest.tgz -C /usr/local/bin speedtest speedtest.5 \
+    && rm speedtest.tgz \
+    && chmod +x /usr/local/bin/speedtest
 
 # Create speedtest directory
 RUN mkdir -p /usr/share/nginx/html/speedtest
