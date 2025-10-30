@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  speedtest-monitoring:
+    build: .
+    container_name: speedtest-monitoring
+    ports:
+      - "8080:80"
+    volumes:
+      - ./results.json:/usr/share/nginx/html/speedtest/results.json
+      - ./config.json:/usr/share/nginx/html/speedtest/config.json
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Manila
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"

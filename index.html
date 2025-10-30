@@ -3,39 +3,87 @@
 
 <head>
   <meta charset="UTF-8" />
-  <title>Main Campus - Speedtest Monitoring</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title id="page-title">Speedtest Monitoring</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@unocss/runtime/attributify.global.js"></script>
   <script type="module">
-    import {createApp, ref, onMounted, watch} from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js'
+    import {createApp, ref, onMounted, computed} from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js'
     createApp({
       setup() {
         const results = ref([]);
         const filteredResults = ref([]);
         const fromDate = ref('');
         const toDate = ref('');
+        const loading = ref(true);
+        const error = ref('');
+        const config = ref({
+          title: 'Speedtest Monitoring',
+          location: 'Main'
+        });
         let chart = null;
+
         const formatMBps = (mbps) => {
           return ((mbps * 8) / 1_000_000).toFixed(2);
         };
+
+        // Load configuration
+        const loadConfig = async () => {
+          try {
+            const res = await fetch("config.json");
+            if (res.ok) {
+              const cfg = await res.json();
+              config.value = cfg;
+              document.title = cfg.title || 'Speedtest Monitoring';
+              document.getElementById('page-title').textContent = cfg.title || 'Speedtest Monitoring';
+            }
+          } catch (e) {
+            console.log("Config file not found, using defaults");
+          }
+        };
+
         // Load results.json
         const loadResults = async () => {
+          loading.value = true;
+          error.value = '';
           try {
             const res = await fetch("results.json");
-            results.value = await res.json();
-            filteredResults.value = results.value;
-            drawChart();
+            if (!res.ok) {
+              throw new Error(`HTTP error! status: ${res.status}`);
+            }
+            const data = await res.json();
+            if (!Array.isArray(data)) {
+              throw new Error('Invalid data format: expected array');
+            }
+            results.value = data;
+            filteredResults.value = data;
+            
+            if (data.length === 0) {
+              error.value = 'No speed test results yet. Please wait for the first test to run.';
+            } else {
+              drawChart();
+            }
           } catch (e) {
             console.error("Error loading results:", e);
+            error.value = `Failed to load results: ${e.message}. Please check if results.json exists and is valid.`;
+          } finally {
+            loading.value = false;
           }
         };
 
         // Apply filter
         const applyFilter = () => {
+          if (!fromDate.value && !toDate.value) {
+            resetFilter();
+            return;
+          }
+
           filteredResults.value = results.value.filter(r => {
             const d = new Date(r.timestamp);
-            return (!fromDate.value || d >= new Date(fromDate.value)) &&
-              (!toDate.value || d <= new Date(toDate.value));
+            const from = fromDate.value ? new Date(fromDate.value + 'T00:00:00') : null;
+            const to = toDate.value ? new Date(toDate.value + 'T23:59:59') : null;
+            
+            return (!from || d >= from) && (!to || d <= to);
           });
           drawChart();
         };
@@ -47,12 +95,41 @@
           drawChart();
         };
 
+        // Statistics
+        const stats = computed(() => {
+          if (filteredResults.value.length === 0) return null;
+          
+          const downloads = filteredResults.value.map(r => parseFloat(formatMBps(r.download.bandwidth)));
+          const uploads = filteredResults.value.map(r => parseFloat(formatMBps(r.upload.bandwidth)));
+          const pings = filteredResults.value.map(r => r.ping.latency);
+          
+          return {
+            avgDownload: (downloads.reduce((a, b) => a + b, 0) / downloads.length).toFixed(2),
+            maxDownload: Math.max(...downloads).toFixed(2),
+            minDownload: Math.min(...downloads).toFixed(2),
+            avgUpload: (uploads.reduce((a, b) => a + b, 0) / uploads.length).toFixed(2),
+            maxUpload: Math.max(...uploads).toFixed(2),
+            minUpload: Math.min(...uploads).toFixed(2),
+            avgPing: (pings.reduce((a, b) => a + b, 0) / pings.length).toFixed(0),
+            maxPing: Math.max(...pings).toFixed(0),
+            minPing: Math.min(...pings).toFixed(0),
+            count: filteredResults.value.length
+          };
+        });
+
         // Draw chart
         const drawChart = () => {
-          const ctx = document.getElementById('speedChart').getContext('2d');
+          const ctx = document.getElementById('speedChart');
+          if (!ctx) return;
+          
+          const context = ctx.getContext('2d');
           if (chart) chart.destroy();
 
-          chart = new Chart(ctx, {
+          if (filteredResults.value.length === 0) {
+            return;
+          }
+
+          chart = new Chart(context, {
             type: 'line',
             data: {
               labels: filteredResults.value.map(r => formatDate(r.timestamp)),
@@ -60,16 +137,49 @@
                 {
                   label: 'Download (Mbps)',
                   data: filteredResults.value.map(r => formatMBps(r.download.bandwidth)),
-                  borderColor: 'red',
-                  fill: false,
+                  borderColor: 'rgb(239, 68, 68)',
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  tension: 0.1,
+                  fill: true,
                 },
                 {
                   label: 'Upload (Mbps)',
                   data: filteredResults.value.map(r => formatMBps(r.upload.bandwidth)),
-                  borderColor: 'blue',
-                  fill: false,
+                  borderColor: 'rgb(59, 130, 246)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  tension: 0.1,
+                  fill: true,
                 }
               ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: true,
+              plugins: {
+                legend: {
+                  display: true,
+                  position: 'top',
+                },
+                tooltip: {
+                  mode: 'index',
+                  intersect: false,
+                }
+              },
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  title: {
+                    display: true,
+                    text: 'Speed (Mbps)'
+                  }
+                },
+                x: {
+                  title: {
+                    display: true,
+                    text: 'Time'
+                  }
+                }
+              }
             }
           });
         };
@@ -78,72 +188,146 @@
           return new Date(ts).toLocaleString();
         };
 
-        onMounted(loadResults);
+        const reload = () => {
+          loadResults();
+        };
+
+        onMounted(async () => {
+          await loadConfig();
+          await loadResults();
+        });
 
         return {
           results,
           filteredResults,
           fromDate,
           toDate,
+          loading,
+          error,
+          config,
+          stats,
           applyFilter,
           resetFilter,
           formatDate,
-          formatMBps
+          formatMBps,
+          reload
         };
       }
     }).mount('#app');
   </script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    }
+  </style>
 </head>
 
-<body class="font-sans bg-gray-50 text-gray-800 p-6">
+<body class="font-sans bg-gray-50 text-gray-800 p-4 md:p-6">
 
-  <div id="app" class="max-w-5xl mx-auto space-y-6">
-    <h1 class="text-2xl font-bold">📶 OMSC Main - Speedtest Monitoring</h1>
-
-    <!-- Filter -->
-    <div class="flex flex-wrap gap-3 items-center">
-      <label>From: <input type="date" v-model="fromDate" class="border rounded px-2 py-1" /></label>
-      <label>To: <input type="date" v-model="toDate" class="border rounded px-2 py-1" /></label>
-      <button @click="applyFilter" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 border-none">
-        Apply
-      </button>
-      <button @click="resetFilter" class="px-4 py-2 border-none bg-gray-300 rounded hover:bg-gray-400">
-        Reset
+  <div id="app" class="max-w-7xl mx-auto space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <h1 class="text-2xl md:text-3xl font-bold text-gray-900">📶 {{ config.location }} - Speedtest Monitoring</h1>
+      <button @click="reload" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors self-start md:self-auto">
+        🔄 Refresh
       </button>
     </div>
 
-    <!-- Chart -->
-    <div class="bg-white p-4 rounded-2xl shadow">
-      <canvas id="speedChart"></canvas>
+    <!-- Loading State -->
+    <div v-if="loading" class="bg-white p-8 rounded-2xl shadow text-center">
+      <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <p class="mt-4 text-gray-600">Loading speed test results...</p>
     </div>
 
-    <!-- Table -->
-    <div class="overflow-x-auto bg-white rounded-2xl shadow">
-      <table class="w-full border-collapse">
-        <thead class="bg-gray-100">
-          <tr>
-            <th class="text-left p-2">Date</th>
-            <th class="text-left p-2">Download (Mbps)</th>
-            <th class="text-left p-2">Upload (Mbps)</th>
-            <th class="text-left p-2">Ping (ms)</th>
-            <th class="text-left p-2">Link</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in filteredResults" :key="r.timestamp" class="border-t">
-            <td class="p-2">{{ formatDate(r.timestamp) }}</td>
-            <td class="p-2">{{ formatMBps(r.download.bandwidth) }}</td>
-            <td class="p-2">{{ formatMBps(r.upload.bandwidth) }}</td>
-            <td class="p-2">{{ r.ping.latency.toFixed(0) }}</td>
-            <td class="p-2">
-              <a v-if="r.result.url" :href="r.result.url" target="_blank" class="text-blue-600 hover:underline">
-                View
-              </a>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- Error State -->
+    <div v-if="error && !loading" class="bg-red-50 border border-red-200 p-4 rounded-2xl">
+      <h3 class="text-red-800 font-semibold mb-2">⚠️ Error</h3>
+      <p class="text-red-700">{{ error }}</p>
     </div>
+
+    <!-- Main Content -->
+    <template v-if="!loading && !error">
+      <!-- Statistics -->
+      <div v-if="stats" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-white p-4 rounded-2xl shadow">
+          <h3 class="text-sm text-gray-600 mb-2">Download Speed</h3>
+          <p class="text-2xl font-bold text-red-600">{{ stats.avgDownload }} Mbps</p>
+          <p class="text-xs text-gray-500 mt-1">Min: {{ stats.minDownload }} | Max: {{ stats.maxDownload }}</p>
+        </div>
+        <div class="bg-white p-4 rounded-2xl shadow">
+          <h3 class="text-sm text-gray-600 mb-2">Upload Speed</h3>
+          <p class="text-2xl font-bold text-blue-600">{{ stats.avgUpload }} Mbps</p>
+          <p class="text-xs text-gray-500 mt-1">Min: {{ stats.minUpload }} | Max: {{ stats.maxUpload }}</p>
+        </div>
+        <div class="bg-white p-4 rounded-2xl shadow">
+          <h3 class="text-sm text-gray-600 mb-2">Ping</h3>
+          <p class="text-2xl font-bold text-green-600">{{ stats.avgPing }} ms</p>
+          <p class="text-xs text-gray-500 mt-1">Min: {{ stats.minPing }} | Max: {{ stats.maxPing }}</p>
+        </div>
+      </div>
+
+      <!-- Filter -->
+      <div class="bg-white p-4 rounded-2xl shadow">
+        <div class="flex flex-wrap gap-3 items-center">
+          <label class="flex items-center gap-2">
+            <span class="text-sm font-medium">From:</span>
+            <input type="date" v-model="fromDate" class="border rounded-lg px-3 py-2" />
+          </label>
+          <label class="flex items-center gap-2">
+            <span class="text-sm font-medium">To:</span>
+            <input type="date" v-model="toDate" class="border rounded-lg px-3 py-2" />
+          </label>
+          <button @click="applyFilter" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 border-none transition-colors">
+            Apply Filter
+          </button>
+          <button @click="resetFilter" class="px-4 py-2 border-none bg-gray-300 rounded-lg hover:bg-gray-400 transition-colors">
+            Reset
+          </button>
+          <span class="text-sm text-gray-600 ml-auto">{{ filteredResults.length }} results</span>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="bg-white p-4 md:p-6 rounded-2xl shadow">
+        <canvas id="speedChart"></canvas>
+      </div>
+
+      <!-- Table -->
+      <div class="overflow-x-auto bg-white rounded-2xl shadow">
+        <table class="w-full border-collapse">
+          <thead class="bg-gray-100">
+            <tr>
+              <th class="text-left p-3 font-semibold">Date & Time</th>
+              <th class="text-left p-3 font-semibold">Download (Mbps)</th>
+              <th class="text-left p-3 font-semibold">Upload (Mbps)</th>
+              <th class="text-left p-3 font-semibold">Ping (ms)</th>
+              <th class="text-left p-3 font-semibold">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in filteredResults" :key="r.timestamp" class="border-t hover:bg-gray-50">
+              <td class="p-3">{{ formatDate(r.timestamp) }}</td>
+              <td class="p-3 font-medium text-red-600">{{ formatMBps(r.download.bandwidth) }}</td>
+              <td class="p-3 font-medium text-blue-600">{{ formatMBps(r.upload.bandwidth) }}</td>
+              <td class="p-3">{{ r.ping.latency.toFixed(0) }}</td>
+              <td class="p-3">
+                <a v-if="r.result.url" :href="r.result.url" target="_blank" class="text-blue-600 hover:underline">
+                  View 🔗
+                </a>
+                <span v-else class="text-gray-400">N/A</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
+
+    <!-- Footer -->
+    <footer class="text-center text-sm text-gray-500 py-4">
+      <p>Powered by <a href="https://www.speedtest.net/apps/cli" target="_blank" class="text-blue-600 hover:underline">Speedtest CLI</a> | 
+         <a href="https://github.com/markchristianlacap/speedtest-monitoring" target="_blank" class="text-blue-600 hover:underline">View on GitHub</a>
+      </p>
+    </footer>
   </div>
 </body>
 
