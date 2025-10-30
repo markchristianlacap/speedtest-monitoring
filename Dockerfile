@@ -1,5 +1,8 @@
 FROM nginx:alpine
 
+# Speedtest CLI version
+ARG SPEEDTEST_VERSION=1.2.0
+
 # Install required packages
 RUN apk add --no-cache \
     bash \
@@ -10,7 +13,7 @@ RUN apk add --no-cache \
     && rm -rf /var/cache/apk/*
 
 # Install Speedtest CLI from official binary
-RUN curl -L https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-x86_64.tgz -o speedtest.tgz \
+RUN curl -fsSL https://install.speedtest.net/app/cli/ookla-speedtest-${SPEEDTEST_VERSION}-linux-x86_64.tgz -o speedtest.tgz \
     && tar -xzf speedtest.tgz -C /usr/local/bin speedtest speedtest.5 \
     && rm speedtest.tgz \
     && chmod +x /usr/local/bin/speedtest
